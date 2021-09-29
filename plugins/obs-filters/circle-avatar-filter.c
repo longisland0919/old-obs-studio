@@ -524,7 +524,7 @@ static void tflite_get_out(struct circle_avatar_filter_data * filter) {
 
 }
 
-static void chroma_key_update_v2(void *data, obs_data_t *settings)
+static void circle_avatar_update(void *data, obs_data_t *settings)
 {
 	struct circle_avatar_filter_data *filter = data;
 	//	filter->mask_value = obs_data_get_double(settings, "SETTING_MASK");
@@ -533,7 +533,7 @@ static void chroma_key_update_v2(void *data, obs_data_t *settings)
 	filter->face_size_scale = obs_data_get_double(settings, "FACE_SCALE_SIZE");
 }
 
-static obs_properties_t *chroma_key_properties_v2(void *data)
+static obs_properties_t *circle_avatar_properties(void *data)
 {
 	obs_properties_t *props = obs_properties_create();
 	obs_properties_add_float_slider(props, "FACE_SCALE_SIZE", "FACE_SCALE_SIZE",
@@ -546,7 +546,7 @@ static obs_properties_t *chroma_key_properties_v2(void *data)
 	return props;
 }
 
-static void chroma_key_defaults_v2(obs_data_t *settings)
+static void circle_avatar_defaults(obs_data_t *settings)
 {
 	obs_data_set_default_double(settings, "FACE_SCALE_SIZE", 2.0);
 	obs_data_set_default_double(settings, "FACE_X_BIAS", 0.0);
@@ -564,7 +564,7 @@ struct obs_source_info circle_avatar_filter = {
 	//	.video_tick = circle_avatar_tick,
 	.video_render = circle_avatar_render,
 	.filter_video = circle_avatar_video,
-	.update = chroma_key_update_v2,
-	.get_properties = chroma_key_properties_v2,
-	.get_defaults = chroma_key_defaults_v2,
+	.update = circle_avatar_update,
+	.get_properties = circle_avatar_properties,
+	.get_defaults = circle_avatar_defaults,
 };

@@ -1,0 +1,64 @@
+uniform float4x4 ViewProj;
+uniform texture2d image;
+uniform float2 u_face_center;
+uniform float2 u_face_size;
+
+sampler_state textureSampler {
+	Filter    = Linear;
+	AddressU  = Clamp;
+	AddressV  = Clamp;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in)
+{
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+float3 SampleTexture(float2 uv)
+{
+	float3 rgb = image.Sample(textureSampler, uv).rgb;
+	return GetNonlinearColor(rgb);
+}
+
+
+float draw_circle(float2 coord, float radius) {
+    return step(length(coord), radius);
+}
+
+float4 smooth_blend(VertData v_in) : TARGET
+{
+
+	//float4 frame = image.Sample(textureSampler, (v_in.uv * ( 1 - u_face_size ) + ( u_face_center ) - float2(0.5, 0.5) * ( 1 - u_face_size ) ) );
+	//float2 param = u_face_size / float2(0.5625, 0.75);
+	//float4 frame = image.Sample(textureSampler, (v_in.uv + u_face_center) * param - float2(0.5, 0.5));
+
+    float4 frame = image.Sample(textureSampler, (v_in.uv * (u_face_size ) + u_face_center - float2(0.5, 0.5) * (u_face_size)));
+
+    float2 offset = float2(0.66667, 0.5);
+    //offset.x = 0.5 / scale.x
+    //offset.y = 0.5 / scale.y
+    float2 scale = float2(0.75, 1);
+    //scale.y = 3/4  (摄像头数据是16 ：9  （640 * 480）渲染画面是 4 ：3, 所以为了数据填充 y = (9 / 16) / (3/ 4))
+    //scale.x = 1 * 3 / 4 *  3 / 4(因为渲染画面是 4 ： 3, 所以为了画出圆而不是椭圆， x要缩放 3 / 4) (上面y缩放了，x需要再次缩放)
+    float2 circle_coord = v_in.uv / scale;
+    float circle = draw_circle(circle_coord - offset, 0.5);
+
+	return frame + float4(circle - 1.);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = smooth_blend(v_in);
+	}
+}
