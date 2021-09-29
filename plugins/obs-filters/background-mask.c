@@ -234,8 +234,7 @@ void calcSmoothParameters(struct background_mask_filter_data *filter, float fram
 	blog(LOG_ERROR, "step = %f, radius = %f, offset = %f, texelSize-x = %f, texelSize-y = %f, ",
 	     filter->step, filter->radius, filter->offset, filter->texelSize->x, filter->texelSize->y);
 }
-
-static void mirror_inversion(struct obs_source_frame *frame_data);
+static void mirror_inversion_rgb(uint32_t width, uint32_t height, uint32_t lineSize, uint8_t * data);
 static void tflite_get_out(struct background_mask_filter_data * filter);
 static struct obs_source_frame *
 background_mask_video(void *data, struct obs_source_frame *frame)
@@ -271,21 +270,23 @@ background_mask_video(void *data, struct obs_source_frame *frame)
 	for (int i = 0; i < TFLITE_HEIGHT; ++i) {
 		for (int j = 0; j <= TFLITE_WIDTH / 2; ++j) {
 			pos = filter->rgb_linesize * i + 3 * j;
-			pos_f = filter->rgb_linesize * i + 3 * (TFLITE_WIDTH - 1 - j);
+			pos_f = filter->rgb_linesize * i + 3 * j;
 			*(filter->rgb_f + pos_f + 2) = *(filter->rgb_int + pos) / 255.0f;
 			*(filter->rgb_f + pos_f + 1) = *(filter->rgb_int + pos + 1) / 255.0f;
 			*(filter->rgb_f + pos_f) = *(filter->rgb_int + pos + 2) / 255.0f;
 		}
 	}
-
-	mirror_inversion(frame);
-	convertFrameToBGR(frame, filter);
+	//minrror and bgr -> rgb
+	mirror_inversion_rgb(TFLITE_WIDTH, TFLITE_HEIGHT, filter->rgb_linesize,
+			     filter->rgb_int);
 
 	for (int i = 0; i < TFLITE_HEIGHT; ++i) {
 		for (int j = 0; j <= TFLITE_WIDTH / 2; ++j) {
 			pos = filter->rgb_linesize * i + 3 * j;
-			*(filter->rgb_f + pos + 1) = *(filter->rgb_int + pos + 1) / 255.0f;
-			*(filter->rgb_f + pos) = *(filter->rgb_int + pos + 2) / 255.0f;
+			pos_f = filter->rgb_linesize * i + 3 * (TFLITE_WIDTH - 1 - j);
+			*(filter->rgb_f + pos_f) = *(filter->rgb_int + pos) / 255.0f;
+			*(filter->rgb_f + pos_f + 1) = *(filter->rgb_int + pos + 1) / 255.0f;
+			*(filter->rgb_f + pos_f + 2) = *(filter->rgb_int + pos + 2) / 255.0f;
 		}
 	}
 
@@ -319,45 +320,61 @@ static void tflite_get_out(struct background_mask_filter_data * filter) {
 				 TFLITE_HEIGHT * TFLITE_WIDTH * sizeof(float));
 }
 
-static void mirror_inversion(struct obs_source_frame *frame)
+static void mirror_inversion_rgb(uint32_t width, uint32_t height, uint32_t lineSize, uint8_t * data)
 {
-	if (!frame->width) {
+	if (!data) {
 		return;
 	}
-	uint32_t line_size;
-	switch (frame->format) {
-	case VIDEO_FORMAT_UYVY:
-		line_size = frame->linesize[0];
-		uint8_t * data = frame->data[0];
-		uint32_t *p;
-		uint32_t *q;
-		uint32_t *frame_data = frame->data[0];
-		uint32_t temp_32;
-		uint8_t temp_8;
-		for (uint32_t i = 0; i < frame->height; i++) {
-			for (uint32_t j = 0; j < frame->width / 4; ++j) {
-				p = frame_data + frame->width / 2 * i + j;
-				q = frame_data + frame->width / 2 * i + frame->width / 2 - 1 - j;
-				temp_32 = *p;
-				*p = *q;
-				*q = temp_32;
-				data = (uint8_t *)(p);
-				temp_8 = *(data + 1);
-				*(data + 1) = *(data + 3);
-				*(data + 3) = temp_8;
-
-				if (data != q) {
-					data = (uint8_t *)(q);
-					temp_8 = *(data + 1);
-					*(data + 1) = *(data + 3);
-					*(data + 3) = temp_8;
-				}
-			}
+	//	uint32_t line_size;
+	uint8_t tmp;
+	uint8_t * p;
+	uint8_t * q;
+	for (int i = 0; i < height; ++i) {
+		for (int j = 0; j < lineSize / 2; ++j) {
+			tmp = data[i * lineSize + j];
+			data[i * lineSize + j] = data[i * lineSize + lineSize - 1 - j];
+			data[i * lineSize + lineSize - 1 - j] = tmp;
+			//			p = data + i * lineSize + j * (lineSize / width);
+			//			q = data + i * lineSize + (width - 1 - j) * (lineSize / width);
+			//			tmp = *p;
+			//			*p = *q;
+			//			*q = tmp;
 		}
-		break;
-	default:
-		break;
 	}
+
+	//	switch (frame->format) {
+	//	case VIDEO_FORMAT_UYVY:
+	//		line_size = frame->linesize[0];
+	//		uint8_t * data = frame->data[0];
+	//		uint32_t *p;
+	//		uint32_t *q;
+	//		uint32_t *frame_data = frame->data[0];
+	//		uint32_t temp_32;
+	//		uint8_t temp_8;
+	//		for (uint32_t i = 0; i < frame->height; i++) {
+	//			for (uint32_t j = 0; j < frame->width / 4; ++j) {
+	//				p = frame_data + frame->width / 2 * i + j;
+	//				q = frame_data + frame->width / 2 * i + frame->width / 2 - 1 - j;
+	//				temp_32 = *p;
+	//				*p = *q;
+	//				*q = temp_32;
+	//				data = (uint8_t *)(p);
+	//				temp_8 = *(data + 1);
+	//				*(data + 1) = *(data + 3);
+	//				*(data + 3) = temp_8;
+	//
+	//				if (data != q) {
+	//					data = (uint8_t *)(q);
+	//					temp_8 = *(data + 1);
+	//					*(data + 1) = *(data + 3);
+	//					*(data + 3) = temp_8;
+	//				}
+	//			}
+	//		}
+	//		break;
+	//	default:
+	//		break;
+	//	}
 }
 
 static void background_mask_tick(void *data, float seconds)
@@ -369,13 +386,13 @@ static void background_mask_tick(void *data, float seconds)
 	obs_leave_graphics();
 }
 
-static void chroma_key_update_v2(void *data, obs_data_t *settings)
+static void background_mask_update(void *data, obs_data_t *settings)
 {
 	struct background_mask_filter_data *filter = data;
 	filter->mask_value = obs_data_get_double(settings, "SETTING_MASK");
 }
 
-static obs_properties_t *chroma_key_properties_v2(void *data)
+static obs_properties_t *background_mask_properties(void *data)
 {
 	obs_properties_t *props = obs_properties_create();
 	obs_properties_add_float_slider(props, "SETTING_MASK", "MASK_VALUE",
@@ -384,7 +401,7 @@ static obs_properties_t *chroma_key_properties_v2(void *data)
 	return props;
 }
 
-static void chroma_key_defaults_v2(obs_data_t *settings)
+static void background_mask_defaults(obs_data_t *settings)
 {
 	obs_data_set_default_double(settings, "SETTING_MASK", 0.8);
 }
@@ -398,7 +415,7 @@ struct obs_source_info background_mask_filter = {
 	.destroy = background_mask_destroy,
 	.video_render = background_mask_render,
 	.filter_video = background_mask_video,
-	.update = chroma_key_update_v2,
-	.get_properties = chroma_key_properties_v2,
-	.get_defaults = chroma_key_defaults_v2,
+	.update = background_mask_update,
+	.get_properties = background_mask_properties,
+	.get_defaults = background_mask_defaults,
 };
