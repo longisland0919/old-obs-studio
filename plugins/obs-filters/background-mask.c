@@ -10,17 +10,20 @@ struct background_mask_filter_data {
 	obs_source_t *context;
 	gs_effect_t *effect;
 
+	uint8_t * clip_frame;
+	uint32_t clip_frame_width;
+	uint32_t clip_frame_height;
+	uint32_t clip_frame_linesize;
 	uint8_t * rgb_int;
+	uint32_t rgb_linesize;
 	float * rgb_f;
 	float * output_probability;
 	TfLiteTensor *input_tensor;
 	TfLiteInterpreter *interpreter;
-	uint32_t frame_width;
-	uint32_t frame_height;
-	uint32_t rgb_linesize;
 	video_scaler_t *scalerToBGR;
 
 	uint8_t *texturedata;
+	uint32_t texturedata_linesize;
 	gs_texture_t *tex;
 	gs_eparam_t *mask;
 	gs_eparam_t *texelSize_param;
@@ -85,12 +88,12 @@ static void convertFrameToBGR(
 	struct background_mask_filter_data *filter) {
 	if (filter->scalerToBGR == NULL) {
 		// Lazy initialize the frame scale & color converter
-		initializeScalers(filter->frame_width, filter->frame_height, frame->format, filter);
+		initializeScalers(filter->clip_frame_width, filter->clip_frame_height, frame->format, filter);
 	}
 
 	video_scaler_scale(filter->scalerToBGR,
 			   &(filter->rgb_int), &(filter->rgb_linesize),
-			   frame->data, frame->linesize);
+			   &(filter->clip_frame), &(filter->clip_frame_linesize));
 }
 
 static void background_mask_destroy(void *data)
@@ -130,8 +133,12 @@ static void background_mask_destroy(void *data)
 	}
 
 	if (filter->texelSize) {
-		filter->texelSize = bzalloc(sizeof (struct vec2));
+		bfree(filter->texelSize);
 		filter->texelSize = NULL;
+	}
+	if (filter->clip_frame) {
+		bfree(filter->clip_frame);
+		filter->clip_frame = NULL;
 	}
 
 	bfree(data);
@@ -152,10 +159,10 @@ static void *background_mask_create(obs_data_t *settings, obs_source_t *context)
 	filter->offset_param = gs_effect_get_param_by_name(filter->effect, "u_offset");
 	filter->sigmaTexel_param = gs_effect_get_param_by_name(filter->effect, "u_sigmaTexel");
 	filter->sigmaColor_param = gs_effect_get_param_by_name(filter->effect, "u_sigmaColor");
-	if (!filter->tex) {
-		filter->tex = gs_texture_create(TFLITE_WIDTH, TFLITE_HEIGHT, GS_R8, 1, NULL, GS_DYNAMIC );
-	}
-	gs_effect_set_texture(filter->mask, filter->tex);
+	//	if (!filter->tex) {
+	//		filter->tex = gs_texture_create(TFLITE_WIDTH, TFLITE_HEIGHT, GS_R8, 1, NULL, GS_DYNAMIC );
+	//	}
+	//	gs_effect_set_texture(filter->mask, filter->tex);
 	obs_leave_graphics();
 
 	bfree(effect_path);
@@ -193,7 +200,10 @@ static void background_mask_render(void *data, gs_effect_t *effect)
 		return;
 	gs_texture_set_image(filter->tex,
 			     filter->texturedata,
-			     TFLITE_WIDTH, false);
+			     filter->texturedata_linesize, false);
+	if (!filter->tex) {
+		filter->tex = gs_texture_create(filter->texturedata_linesize, TFLITE_HEIGHT, GS_R8, 1, NULL, GS_DYNAMIC );
+	}
 	gs_effect_set_texture(filter->mask,  filter->tex);
 	gs_effect_set_vec2(filter->texelSize_param, filter->texelSize);
 	gs_effect_set_float(filter->step_param, filter->step);
@@ -212,7 +222,7 @@ static void background_mask_render(void *data, gs_effect_t *effect)
 	UNUSED_PARAMETER(effect);
 }
 
-void calcSmoothParameters(struct background_mask_filter_data *filter, float frameWidth, float frameHeight, float tfWidth, float tfHeight){
+static void calcSmoothParameters(struct background_mask_filter_data *filter, float frameWidth, float frameHeight, float tfWidth, float tfHeight){
 	float sigmaSpace = 1.0f;
 	float kSparsityFactor = 0.66f; // Higher is more sparse.
 
@@ -231,40 +241,50 @@ void calcSmoothParameters(struct background_mask_filter_data *filter, float fram
 
 	filter->sigmaTexel = MAX(texelWidth, texelHeight) * sigmaSpace;
 	filter->sigmaColor = 0.1f;
-	blog(LOG_ERROR, "step = %f, radius = %f, offset = %f, texelSize-x = %f, texelSize-y = %f, ",
-	     filter->step, filter->radius, filter->offset, filter->texelSize->x, filter->texelSize->y);
 }
+
 static void mirror_inversion_rgb(uint32_t width, uint32_t height, uint32_t lineSize, uint8_t * data);
 static void tflite_get_out(struct background_mask_filter_data * filter);
+static void clip_frame(struct obs_source_frame *src_frame,
+		       struct background_mask_filter_data *filter);
+static void init_filter_data(struct obs_source_frame *src_frame,
+			     struct background_mask_filter_data *filter);
+
+static void convertFrameToRGB(struct obs_source_frame *frame,
+			      struct background_mask_filter_data *filter);
 static struct obs_source_frame *
 background_mask_video(void *data, struct obs_source_frame *frame)
 {
 	struct background_mask_filter_data *filter = data;
-	if (filter->frame_width != frame->width || filter->frame_height != frame->height) {
-		destroyScalers(filter);
-		filter->frame_width = frame->width;
-		filter->frame_height = frame->height;
-		if (!filter->texelSize) {
-			filter->texelSize = bzalloc(sizeof (struct vec2));
+	if (!frame->width || !frame->height) return frame;
+
+	init_filter_data(frame, filter);
+	clip_frame(frame, filter);
+	convertFrameToRGB(frame, filter);
+	tflite_get_out(filter);
+	if (filter->clip_frame_height == frame->height) {
+		int bias = (filter->texturedata_linesize - TFLITE_WIDTH) / 2;
+		for (int i = 0; i < TFLITE_HEIGHT; ++i) {
+			int p_pos = i * TFLITE_WIDTH;
+			int q_pos = i * filter->texturedata_linesize + bias;
+
+			for (int j = 0; j < TFLITE_WIDTH; ++j) {
+				if (filter->output_probability[p_pos + j] < filter->mask_value) {
+					*(filter->texturedata + q_pos + j) = 0;
+				} else {
+					*(filter->texturedata + q_pos + j) = (uint8_t) (255.0f * filter->output_probability[p_pos + j]);
+				}
+			}
 		}
-		calcSmoothParameters(filter, frame->width, frame->height, TFLITE_WIDTH, TFLITE_HEIGHT);
+	} else {
+		//todo
 	}
-
-	if (!filter->texelSize) {
-		filter->texelSize = bzalloc(sizeof (struct vec2));
-		calcSmoothParameters(filter, frame->width, frame->height, TFLITE_WIDTH, TFLITE_HEIGHT);
-	}
-
-	if (!filter->rgb_int) {
-		filter->rgb_int = (
-			bzalloc(filter->rgb_linesize * TFLITE_HEIGHT *
-				sizeof(uint8_t)));
-	}
+	return frame;
+}
+static void convertFrameToRGB(struct obs_source_frame *frame,
+			      struct background_mask_filter_data *filter)
+{
 	convertFrameToBGR(frame, filter);
-
-	if (!filter->rgb_f) {
-		filter->rgb_f = bzalloc(filter->rgb_linesize * TFLITE_HEIGHT * sizeof(float));
-	}
 	uint32_t pos;
 	uint32_t pos_f;
 	for (int i = 0; i < TFLITE_HEIGHT; ++i) {
@@ -276,10 +296,9 @@ background_mask_video(void *data, struct obs_source_frame *frame)
 			*(filter->rgb_f + pos_f) = *(filter->rgb_int + pos + 2) / 255.0f;
 		}
 	}
-	//minrror and bgr -> rgb
+	//mirror bgr image and  make format bgr -> rgb
 	mirror_inversion_rgb(TFLITE_WIDTH, TFLITE_HEIGHT, filter->rgb_linesize,
 			     filter->rgb_int);
-
 	for (int i = 0; i < TFLITE_HEIGHT; ++i) {
 		for (int j = 0; j <= TFLITE_WIDTH / 2; ++j) {
 			pos = filter->rgb_linesize * i + 3 * j;
@@ -289,17 +308,93 @@ background_mask_video(void *data, struct obs_source_frame *frame)
 			*(filter->rgb_f + pos_f + 2) = *(filter->rgb_int + pos + 2) / 255.0f;
 		}
 	}
-
-	tflite_get_out(filter);
-	for (int i = 0; i < TFLITE_HEIGHT * TFLITE_WIDTH; ++i) {
-		if (filter->output_probability[i] < filter->mask_value) {
-			*(filter->texturedata + i) = 0;
-		} else {
-			*(filter->texturedata + i) = (uint8_t) (255.0f * filter->output_probability[i]);
+}
+static void init_filter_data(struct obs_source_frame *src_frame,
+			     struct background_mask_filter_data *filter)
+{
+	float default_width_pro = 4;
+	float default_height_pro = 3;
+	uint32_t clip_width, clip_height;
+	if (default_width_pro / default_height_pro >= src_frame->width * 1.f / src_frame->height) {
+		//h > w
+		clip_width = src_frame->width;
+		clip_height = (uint32_t) ((float ) clip_width * default_height_pro / default_width_pro);
+		clip_height = clip_height / 2 * 2;
+		filter->clip_frame_linesize = src_frame->linesize[0];
+		filter->texturedata_linesize = TFLITE_WIDTH;
+	} else {
+		//w > h
+		clip_height = src_frame->height;
+		clip_width = (uint32_t) ((float ) clip_height * default_width_pro / default_height_pro);
+		clip_width = clip_width / 2 * 2;
+		filter->clip_frame_linesize = src_frame->linesize[0] * clip_width / src_frame->width;
+		filter->texturedata_linesize = TFLITE_WIDTH * sizeof (uint8_t) * src_frame->width / clip_width;
+	}
+	filter->texturedata_linesize = (filter->texturedata_linesize + 1) / 2 * 2;
+	if (filter->clip_frame_width != clip_width || filter->clip_frame_height != clip_height) {
+		destroyScalers(filter);
+		filter->clip_frame_width = clip_width;
+		filter->clip_frame_height = clip_height;
+		if (!filter->texelSize) {
+			filter->texelSize = bzalloc(sizeof (struct vec2));
+		}
+		calcSmoothParameters(filter, src_frame->width, src_frame->height, filter->texturedata_linesize, TFLITE_HEIGHT);
+		if (filter->clip_frame) {
+			bfree(filter->clip_frame);
+		}
+		if (filter->texturedata) {
+			bfree(filter->texturedata);
 		}
 	}
+	if (!filter->texelSize) {
+		filter->texelSize = bzalloc(sizeof (struct vec2));
+		calcSmoothParameters(filter, src_frame->width, src_frame->height, filter->texturedata_linesize, TFLITE_HEIGHT);
+		if (filter->clip_frame) {
+			bfree(filter->clip_frame);
+		}
+		if (filter->texturedata) {
+			bfree(filter->texturedata);
+		}
+	}
+	if (!filter->clip_frame) {
+		filter->clip_frame = bzalloc(filter->clip_frame_linesize * filter->clip_frame_height * sizeof (uint8_t));
+	}
+	if (!filter->texturedata) {
+		uint32_t size ;
+		if (filter->clip_frame_height == src_frame->height) {
+			//w > h
+			size = TFLITE_HEIGHT * filter->texturedata_linesize;
+		} else {
+			// w < h
+			size = TFLITE_HEIGHT * filter->texturedata_linesize * sizeof (uint8_t) * src_frame->height / filter->clip_frame_height;
+		}
+		filter->texturedata = bzalloc(size);
+		memset(filter->texturedata, 0, size);
+	}
+	if (!filter->rgb_int) {
+		filter->rgb_int = (
+			bzalloc(filter->rgb_linesize * TFLITE_HEIGHT *
+				sizeof(uint8_t)));
+	}
+	if (!filter->rgb_f) {
+		filter->rgb_f = bzalloc(filter->rgb_linesize * TFLITE_HEIGHT * sizeof(float));
+	}
+}
 
-	return frame;
+static void clip_frame(struct obs_source_frame *src_frame,
+		       struct background_mask_filter_data *filter)
+{
+	uint8_t * src_pos;
+	uint8_t * dst_pos;
+	if (filter->clip_frame_height == src_frame->height) {
+		for (uint32_t i = 0; i < src_frame->height; ++i) {
+			src_pos = src_frame->data[0] + i * src_frame->linesize[0] + (src_frame->linesize[0] - filter->clip_frame_linesize) / 2;
+			dst_pos = filter->clip_frame + i * filter->clip_frame_linesize;
+			memcpy(dst_pos, src_pos, filter->clip_frame_linesize);
+		}
+	} else if (filter->clip_frame_width == src_frame->width) {
+
+	}
 }
 static void tflite_get_out(struct background_mask_filter_data * filter) {
 	TfLiteTensorCopyFromBuffer(filter->input_tensor, filter->rgb_f,
@@ -313,9 +408,6 @@ static void tflite_get_out(struct background_mask_filter_data * filter) {
 		filter->output_probability = (
 			bzalloc(TFLITE_HEIGHT * TFLITE_WIDTH * sizeof(float)));
 	}
-	if (!filter->texturedata) {
-		filter->texturedata = bzalloc(TFLITE_HEIGHT * TFLITE_WIDTH * sizeof(uint8_t));
-	}
 	TfLiteTensorCopyToBuffer(output_tensor, filter->output_probability,
 				 TFLITE_HEIGHT * TFLITE_WIDTH * sizeof(float));
 }
@@ -327,63 +419,14 @@ static void mirror_inversion_rgb(uint32_t width, uint32_t height, uint32_t lineS
 	}
 	//	uint32_t line_size;
 	uint8_t tmp;
-	uint8_t * p;
-	uint8_t * q;
 	for (int i = 0; i < height; ++i) {
 		for (int j = 0; j < lineSize / 2; ++j) {
 			tmp = data[i * lineSize + j];
 			data[i * lineSize + j] = data[i * lineSize + lineSize - 1 - j];
 			data[i * lineSize + lineSize - 1 - j] = tmp;
-			//			p = data + i * lineSize + j * (lineSize / width);
-			//			q = data + i * lineSize + (width - 1 - j) * (lineSize / width);
-			//			tmp = *p;
-			//			*p = *q;
-			//			*q = tmp;
 		}
 	}
 
-	//	switch (frame->format) {
-	//	case VIDEO_FORMAT_UYVY:
-	//		line_size = frame->linesize[0];
-	//		uint8_t * data = frame->data[0];
-	//		uint32_t *p;
-	//		uint32_t *q;
-	//		uint32_t *frame_data = frame->data[0];
-	//		uint32_t temp_32;
-	//		uint8_t temp_8;
-	//		for (uint32_t i = 0; i < frame->height; i++) {
-	//			for (uint32_t j = 0; j < frame->width / 4; ++j) {
-	//				p = frame_data + frame->width / 2 * i + j;
-	//				q = frame_data + frame->width / 2 * i + frame->width / 2 - 1 - j;
-	//				temp_32 = *p;
-	//				*p = *q;
-	//				*q = temp_32;
-	//				data = (uint8_t *)(p);
-	//				temp_8 = *(data + 1);
-	//				*(data + 1) = *(data + 3);
-	//				*(data + 3) = temp_8;
-	//
-	//				if (data != q) {
-	//					data = (uint8_t *)(q);
-	//					temp_8 = *(data + 1);
-	//					*(data + 1) = *(data + 3);
-	//					*(data + 3) = temp_8;
-	//				}
-	//			}
-	//		}
-	//		break;
-	//	default:
-	//		break;
-	//	}
-}
-
-static void background_mask_tick(void *data, float seconds)
-{
-	struct background_mask_filter_data *filter = data;
-
-	obs_enter_graphics();
-
-	obs_leave_graphics();
 }
 
 static void background_mask_update(void *data, obs_data_t *settings)
