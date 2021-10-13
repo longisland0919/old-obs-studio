@@ -15,7 +15,7 @@
 #define RELIEVE_SHAKE_SIZE_BIAS 0.05
 #define RELIEVE_SHAKE_POS_SCALE 6
 #define RELIEVE_SHAKE_SIZE_SCALE 15
-#define CIRCLE_AVATAR_BOUNDARY_WIDTH 0.65f
+#define CIRCLE_AVATAR_BOUNDARY_WIDTH 0.1f
 #define CIRCLE_AVATAR_BOUNDARY_HEIGHT 0.8f
 
 
@@ -32,14 +32,17 @@ struct circle_avatar_filter_data {
 	gs_effect_t *effect;
 
 	uint8_t * rgb_int;
+	uint8_t * clip_frame;
+	uint32_t clip_frame_width;
+	uint32_t clip_frame_height;
+	uint32_t clip_frame_linesize;
+	float clip_width_pro;//  clip frame width / source frame width
 	float * rgb_f;
 	float * output_coordinates_data;
 	float * output_score_data;
 	float ** anchors;
 	TfLiteTensor *input_tensor;
 	TfLiteInterpreter *interpreter;
-	uint32_t frame_width;
-	uint32_t frame_height;
 	uint32_t rgb_linesize;
 	video_scaler_t *scalerToBGR;
 	struct box * box_list;
@@ -53,12 +56,16 @@ struct circle_avatar_filter_data {
 	double face_size_scale;
 	double x_bias;
 	double y_bias;
+
 };
 static void tflite_get_out(struct circle_avatar_filter_data * filter);
 static void calcRect(struct circle_avatar_filter_data *filter);
 static inline void set_box_value(struct box* p_box, float width, float height, float center_x, float center_y);
 static bool judgeInBoundary(struct box *p_box);
-
+static void clip_frame(struct obs_source_frame *src_frame,
+		       struct circle_avatar_filter_data *filter);
+static void init_filter_data(struct obs_source_frame *src_frame,
+			     struct circle_avatar_filter_data *filter);
 static const char *circle_avatar_name(void *unused)
 {
 	UNUSED_PARAMETER(unused);
@@ -70,10 +77,6 @@ static void destroyScalers(struct circle_avatar_filter_data *filter) {
 		video_scaler_destroy(filter->scalerToBGR);
 		filter->scalerToBGR = NULL;
 	}
-	//	if (filter->scalerFromBGR) {
-	//		video_scaler_destroy(filter->scalerFromBGR);
-	//		filter->scalerFromBGR = NULL;
-	//	}
 }
 
 static void generateAnchors(struct circle_avatar_filter_data* filter) {
@@ -136,12 +139,12 @@ static void convertFrameToBGR(
 	struct circle_avatar_filter_data *filter) {
 	if (filter->scalerToBGR == NULL) {
 		// Lazy initialize the frame scale & color converter
-		initializeScalers(filter->frame_width, filter->frame_height, frame->format, filter);
+		initializeScalers(filter->clip_frame_width, filter->clip_frame_height, frame->format, filter);
 	}
 
 	video_scaler_scale(filter->scalerToBGR,
 			   &(filter->rgb_int), &(filter->rgb_linesize),
-			   frame->data, frame->linesize);
+			   &(filter->clip_frame), &(filter->clip_frame_linesize));
 }
 
 static void circle_avatar_destroy(void *data)
@@ -203,6 +206,10 @@ static void circle_avatar_destroy(void *data)
 			filter->box_list = filter->box_list->next;
 			bfree(p);
 		}
+	}
+	if (filter->clip_frame) {
+		bfree(filter->clip_frame);
+		filter->clip_frame = NULL;
 	}
 	bfree(data);
 }
@@ -277,27 +284,15 @@ circle_avatar_video(void *data, struct obs_source_frame *frame)
 {
 
 	struct circle_avatar_filter_data *filter = data;
-	if (filter->frame_width != frame->width || filter->frame_height != frame->height) {
-		destroyScalers(filter);
-		filter->frame_width = frame->width;
-		filter->frame_height = frame->height;
-	}
-
-	if (!filter->rgb_int) {
-		filter->rgb_int = (
-			bzalloc(filter->rgb_linesize * TFLITE_HEIGHT *
-				sizeof(uint8_t)));
-	}
+	init_filter_data(frame, filter);
+	clip_frame(frame, filter);
 	convertFrameToBGR(frame, filter);
-	if (!filter->rgb_f) {
-		filter->rgb_f = bzalloc(filter->rgb_linesize * TFLITE_HEIGHT * sizeof(float));
-	}
 
 	for (uint32_t i = 0; i < TFLITE_HEIGHT * TFLITE_WIDTH; ++i) {
 		*(filter->rgb_f + i * 3 + 2) = *(filter->rgb_int + i * 3) / 255.0f;
 		*(filter->rgb_f + i * 3 + 1) = *(filter->rgb_int + i * 3 + 1) / 255.0f;
 		*(filter->rgb_f + i * 3) = *(filter->rgb_int + i * 3 + 2) / 255.0f;
-		//		*(filter->rgb_f + i) = *(filter->rgb_int + i) / 256.0f;
+		//
 	}
 	if (!filter->anchors) {
 		generateAnchors(filter);
@@ -327,16 +322,16 @@ circle_avatar_video(void *data, struct obs_source_frame *frame)
 	if (!filter->faceCenter) {
 		filter->faceCenter = bzalloc(sizeof(struct vec2));
 	}
-	bool resultIn = judgeInBoundary(&filter->current_box);
+	bool inBox = judgeInBoundary(&filter->current_box);
 
-	if (!resultIn) {
+	if (!inBox) {
 		filter->faceCenter->x = -1;
 	} else {
 		filter->faceCenter->x = filter->current_box.face_center_x / TFLITE_WIDTH;
 		filter->faceCenter->y = filter->current_box.face_center_y / TFLITE_HEIGHT;
 
-		filter->faceSize->x = filter->current_box.face_width / TFLITE_WIDTH;
-		filter->faceSize->y = filter->current_box.face_height / TFLITE_HEIGHT;
+		filter->faceSize->x = filter->current_box.face_width * frame->width / TFLITE_WIDTH / filter->clip_frame_width;
+		filter->faceSize->y = filter->current_box.face_height * frame->height / TFLITE_HEIGHT / filter->clip_frame_height;
 	}
 
 	if (filter->faceCenter->x < 0 || filter->faceCenter->y < 0 || filter->faceSize->x <= 0 || filter->faceSize->y <= 0) {
@@ -351,6 +346,64 @@ circle_avatar_video(void *data, struct obs_source_frame *frame)
 
 	return frame;
 }
+static void init_filter_data(struct obs_source_frame *src_frame,
+			     struct circle_avatar_filter_data *filter)
+{
+	float default_width_pro = 4;
+	float default_height_pro = 3;
+	uint32_t clip_width, clip_height;
+	if (default_width_pro / default_height_pro >= src_frame->width * 1.f / src_frame->height) {
+		//h > w
+		clip_width = src_frame->width;
+		clip_height = (uint32_t) ((float ) clip_width * default_height_pro / default_width_pro);
+		clip_height = clip_height / 2 * 2;
+		filter->clip_frame_linesize = src_frame->linesize[0];
+	} else {
+		//w > h
+		clip_height = src_frame->height;
+		clip_width = (uint32_t) ((float ) clip_height * default_width_pro / default_height_pro);
+		clip_width = clip_width / 2 * 2;
+		filter->clip_frame_linesize = src_frame->linesize[0] * clip_width / src_frame->width;
+	}
+
+
+	if (filter->clip_frame_width != clip_width || filter->clip_frame_height != clip_height) {
+		destroyScalers(filter);
+		filter->clip_frame_width = clip_width;
+		filter->clip_frame_height = clip_height;
+		if (filter->clip_frame) {
+			bfree(filter->clip_frame);
+		}
+		filter->clip_width_pro = (float) filter->clip_frame_width / (float) src_frame->width;
+	}
+	if (!filter->clip_frame) {
+		filter->clip_frame = bzalloc(filter->clip_frame_linesize * filter->clip_frame_height * sizeof (uint8_t));
+	}
+	if (!filter->rgb_int) {
+		filter->rgb_int = (
+			bzalloc(filter->rgb_linesize * TFLITE_HEIGHT *
+				sizeof(uint8_t)));
+	}
+	if (!filter->rgb_f) {
+		filter->rgb_f = bzalloc(filter->rgb_linesize * TFLITE_HEIGHT * sizeof(float));
+	}
+}
+
+static void clip_frame(struct obs_source_frame *src_frame,
+		       struct circle_avatar_filter_data *filter)
+{
+	uint8_t * src_pos;
+	uint8_t * dst_pos;
+	if (filter->clip_frame_height == src_frame->height) {
+		for (uint32_t i = 0; i < src_frame->height; ++i) {
+			src_pos = src_frame->data[0] + i * src_frame->linesize[0] + (src_frame->linesize[0] - filter->clip_frame_linesize) / 2;
+			dst_pos = filter->clip_frame + i * filter->clip_frame_linesize;
+			memcpy(dst_pos, src_pos, filter->clip_frame_linesize);
+		}
+	} else if (filter->clip_frame_width == src_frame->width) {
+		//todo
+	}
+}
 
 static inline void set_box_value(struct box* p_box, float width, float height, float center_x, float center_y) {
 	p_box->face_center_x = center_x;
@@ -360,12 +413,6 @@ static inline void set_box_value(struct box* p_box, float width, float height, f
 }
 
 static inline void calcRectInner(struct circle_avatar_filter_data *filter, int index) {
-	float current_face_center_x = filter->output_coordinates_data[index * TFLITE_COORDINATES_NUM]
-				      + filter->anchors[index][0] + filter->x_bias;
-	float current_face_center_y = filter->output_coordinates_data[index * TFLITE_COORDINATES_NUM + 1]
-				      + filter->anchors[index][1] + filter->y_bias;
-	float current_face_width = filter->output_coordinates_data[index * TFLITE_COORDINATES_NUM + 2];
-	float current_face_height = filter->output_coordinates_data[index * TFLITE_COORDINATES_NUM + 3];
 	float old_face_center_x = 0;
 	float old_face_center_y = 0;
 	float old_face_width = 0;
@@ -383,6 +430,33 @@ static inline void calcRectInner(struct circle_avatar_filter_data *filter, int i
 			valid_num ++;
 		}
 	}
+	//do not find human
+	if (index < 0) {
+		set_box_value(filter->box_list, -1, -1, -1, -1);
+		//has been found human
+		if (valid_num > 0) {
+			set_box_value(&filter->current_box,
+				      old_face_center_x / valid_num,
+				      old_face_center_y / valid_num,
+				      old_face_width / valid_num,
+				      old_face_height / valid_num);
+		} else {
+			//no human in history
+			set_box_value(&filter->current_box, -1, -1, -1, -1);
+		}
+		return;
+	}
+	//find human this time
+	float current_face_center_x = filter->output_coordinates_data[index * TFLITE_COORDINATES_NUM]
+				      + filter->anchors[index][0];
+	current_face_center_x = current_face_center_x * filter->clip_width_pro + (1 - filter->clip_width_pro) / 2 * TFLITE_WIDTH + filter->x_bias;
+	float current_face_center_y = filter->output_coordinates_data[index * TFLITE_COORDINATES_NUM + 1]
+				      + filter->anchors[index][1] + filter->y_bias;
+	float current_face_width = filter->output_coordinates_data[index * TFLITE_COORDINATES_NUM + 2];
+	current_face_width *= 3.f / 4.f;
+	float current_face_height = filter->output_coordinates_data[index * TFLITE_COORDINATES_NUM + 3];
+
+
 	set_box_value(filter->box_list, current_face_width, current_face_height, current_face_center_x, current_face_center_y);
 
 	if (valid_num != RELIEVE_SHAKE_BOX_NUM)  {
@@ -416,7 +490,8 @@ static inline void calcRectInner(struct circle_avatar_filter_data *filter, int i
 
 static bool judgeInBoundary(struct box *p_box) {
 	float boundaryX =  p_box->face_width * CIRCLE_AVATAR_BOUNDARY_WIDTH;
-	float boundaryY = p_box->face_height * CIRCLE_AVATAR_BOUNDARY_HEIGHT;
+	float boundaryY = p_box->face_height * CIRCLE_AVATAR_BOUNDARY_HEIGHT ;
+	//	blog(LOG_ERROR, "face width = %f, face height = %f", p_box->face_width, p_box->face_height);
 	return !(p_box->face_center_x < boundaryX || p_box->face_center_x > (TFLITE_WIDTH - boundaryX)
 		 || p_box->face_center_y <  boundaryY || p_box->face_center_y > (TFLITE_HEIGHT - boundaryY));
 }
@@ -431,12 +506,7 @@ static void calcRect(struct circle_avatar_filter_data *filter) {
 			best_score = filter->output_score_data[i];
 		}
 	}
-	if (pos > 0) {
-		calcRectInner(filter, pos);
-	} else {
-		set_box_value(filter->box_list, -1, -1, -1, -1);
-		set_box_value(&filter->current_box, -1, -1, -1 ,-1);
-	}
+	calcRectInner(filter, pos);
 }
 
 static void tflite_get_out(struct circle_avatar_filter_data * filter) {
