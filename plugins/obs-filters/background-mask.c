@@ -198,12 +198,12 @@ static void background_mask_render(void *data, gs_effect_t *effect)
 	if (!obs_source_process_filter_begin(filter->context, GS_RGBA,
 					     OBS_ALLOW_DIRECT_RENDERING))
 		return;
-	gs_texture_set_image(filter->tex,
-			     filter->texturedata,
-			     filter->texturedata_linesize, false);
 	if (!filter->tex) {
 		filter->tex = gs_texture_create(filter->texturedata_linesize, TFLITE_HEIGHT, GS_R8, 1, NULL, GS_DYNAMIC );
 	}
+	gs_texture_set_image(filter->tex,
+			     filter->texturedata,
+			     filter->texturedata_linesize, false);
 	gs_effect_set_texture(filter->mask,  filter->tex);
 	gs_effect_set_vec2(filter->texelSize_param, filter->texelSize);
 	gs_effect_set_float(filter->step_param, filter->step);
