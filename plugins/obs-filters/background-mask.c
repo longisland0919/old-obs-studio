@@ -104,6 +104,7 @@ static void background_mask_destroy(void *data)
 		obs_enter_graphics();
 		gs_effect_destroy(filter->effect);
 		obs_leave_graphics();
+		filter->effect = NULL;
 	}
 
 	if (filter->rgb_int) {
@@ -159,10 +160,7 @@ static void *background_mask_create(obs_data_t *settings, obs_source_t *context)
 	filter->offset_param = gs_effect_get_param_by_name(filter->effect, "u_offset");
 	filter->sigmaTexel_param = gs_effect_get_param_by_name(filter->effect, "u_sigmaTexel");
 	filter->sigmaColor_param = gs_effect_get_param_by_name(filter->effect, "u_sigmaColor");
-	//	if (!filter->tex) {
-	//		filter->tex = gs_texture_create(TFLITE_WIDTH, TFLITE_HEIGHT, GS_R8, 1, NULL, GS_DYNAMIC );
-	//	}
-	//	gs_effect_set_texture(filter->mask, filter->tex);
+	filter->texturedata = NULL;
 	obs_leave_graphics();
 
 	bfree(effect_path);
@@ -195,6 +193,11 @@ static void background_mask_render(void *data, gs_effect_t *effect)
 {
 	struct background_mask_filter_data *filter = data;
 
+	obs_source_t *target = obs_filter_get_target(filter->context);
+	if (!filter->effect || !target || !filter->texturedata_linesize) {
+		blog(LOG_WARNING, "background_mask_render failed ");
+		return;
+	}
 	if (!obs_source_process_filter_begin(filter->context, GS_RGBA,
 					     OBS_ALLOW_DIRECT_RENDERING))
 		return;
@@ -247,7 +250,7 @@ static void mirror_inversion_rgb(uint32_t width, uint32_t height, uint32_t lineS
 static void tflite_get_out(struct background_mask_filter_data * filter);
 static void clip_frame(struct obs_source_frame *src_frame,
 		       struct background_mask_filter_data *filter);
-static void init_filter_data(struct obs_source_frame *src_frame,
+static bool init_filter_data(struct obs_source_frame *src_frame,
 			     struct background_mask_filter_data *filter);
 
 static void convertFrameToRGB(struct obs_source_frame *frame,
@@ -258,7 +261,9 @@ background_mask_video(void *data, struct obs_source_frame *frame)
 	struct background_mask_filter_data *filter = data;
 	if (!frame->width || !frame->height) return frame;
 
-	init_filter_data(frame, filter);
+	if (!init_filter_data(frame, filter)) {
+		return frame;
+	}
 	clip_frame(frame, filter);
 	convertFrameToRGB(frame, filter);
 	tflite_get_out(filter);
@@ -309,9 +314,14 @@ static void convertFrameToRGB(struct obs_source_frame *frame,
 		}
 	}
 }
-static void init_filter_data(struct obs_source_frame *src_frame,
+static bool init_filter_data(struct obs_source_frame *src_frame,
 			     struct background_mask_filter_data *filter)
 {
+	if (!src_frame->width || !src_frame->height)
+	{
+		blog(LOG_WARNING, "init_filter_data failed ,because src frame is invalid");
+		return false;
+	}
 	float default_width_pro = 4;
 	float default_height_pro = 3;
 	uint32_t clip_width, clip_height;
@@ -329,6 +339,11 @@ static void init_filter_data(struct obs_source_frame *src_frame,
 		clip_width = clip_width / 2 * 2;
 		filter->clip_frame_linesize = src_frame->linesize[0] * clip_width / src_frame->width;
 		filter->texturedata_linesize = TFLITE_WIDTH * sizeof (uint8_t) * src_frame->width / clip_width;
+	}
+	if (!filter->texturedata_linesize)
+	{
+		blog(LOG_WARNING, "cal error texturedata linesize");
+		return false;
 	}
 	filter->texturedata_linesize = (filter->texturedata_linesize + 1) / 2 * 2;
 	if (filter->clip_frame_width != clip_width || filter->clip_frame_height != clip_height) {
@@ -379,6 +394,7 @@ static void init_filter_data(struct obs_source_frame *src_frame,
 	if (!filter->rgb_f) {
 		filter->rgb_f = bzalloc(filter->rgb_linesize * TFLITE_HEIGHT * sizeof(float));
 	}
+	return true;
 }
 
 static void clip_frame(struct obs_source_frame *src_frame,
