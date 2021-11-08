@@ -15,9 +15,6 @@
 #define RELIEVE_SHAKE_SIZE_BIAS 0.05
 #define RELIEVE_SHAKE_POS_SCALE 6
 #define RELIEVE_SHAKE_SIZE_SCALE 15
-#define CIRCLE_AVATAR_BOUNDARY_WIDTH 0.1f
-#define CIRCLE_AVATAR_BOUNDARY_HEIGHT 0.8f
-
 
 struct box {
 	float face_center_x;
@@ -266,8 +263,7 @@ static void circle_avatar_render(void *data, gs_effect_t *effect)
 		return;
 	gs_effect_set_vec2(filter->face_center_param, filter->faceCenter);
 	gs_effect_set_vec2(filter->face_size_param, filter->faceSize);
-
-	//	blog(LOG_ERROR, "face center x = %f, y = %f,  facesize w = %f, h = %f",  filter->faceCenter->x, filter->faceCenter->y, filter->faceSize->x, filter->faceSize->y);
+	//	blog(LOG_ERROR, "song --- face center x = %f, y = %f,  facesize w = %f, h = %f",  filter->faceCenter->x, filter->faceCenter->y, filter->faceSize->x, filter->faceSize->y);
 
 	gs_blend_state_push();
 	gs_blend_function(GS_BLEND_ONE, GS_BLEND_INVSRCALPHA);
@@ -323,15 +319,26 @@ circle_avatar_video(void *data, struct obs_source_frame *frame)
 		filter->faceCenter = bzalloc(sizeof(struct vec2));
 	}
 	bool inBox = judgeInBoundary(&filter->current_box);
-
 	if (!inBox) {
-		filter->faceCenter->x = -1;
+		//not in box ,that means face is out of box, and what should we do is keeping location and scale
+		return frame;
 	} else {
 		filter->faceCenter->x = filter->current_box.face_center_x / TFLITE_WIDTH;
 		filter->faceCenter->y = filter->current_box.face_center_y / TFLITE_HEIGHT;
 
 		filter->faceSize->x = filter->current_box.face_width * frame->width / TFLITE_WIDTH / filter->clip_frame_width;
 		filter->faceSize->y = filter->current_box.face_height * frame->height / TFLITE_HEIGHT / filter->clip_frame_height;
+		if (filter->faceCenter->x - filter->faceSize->x / 2 < 0) {
+			filter->faceCenter->x = filter->faceSize->x / 2;
+		} else if (filter->faceCenter->x + filter->faceSize->x / 2 > 1) {
+			filter->faceCenter->x = 1 - filter->faceSize->x / 2;
+		}
+
+		if (filter->faceCenter->y - filter->faceSize->y < 0) {
+			filter->faceCenter->y = filter->faceSize->y;
+		} else if (filter->faceCenter->y + filter->faceSize->y > 1) {
+			filter->faceCenter->y = 1 - filter->faceSize->y;
+		}
 	}
 
 	if (filter->faceCenter->x < 0 || filter->faceCenter->y < 0 || filter->faceSize->x <= 0 || filter->faceSize->y <= 0) {
@@ -365,7 +372,6 @@ static void init_filter_data(struct obs_source_frame *src_frame,
 		clip_width = clip_width / 2 * 2;
 		filter->clip_frame_linesize = src_frame->linesize[0] * clip_width / src_frame->width;
 	}
-
 
 	if (filter->clip_frame_width != clip_width || filter->clip_frame_height != clip_height) {
 		destroyScalers(filter);
@@ -436,10 +442,10 @@ static inline void calcRectInner(struct circle_avatar_filter_data *filter, int i
 		//has been found human
 		if (valid_num > 0) {
 			set_box_value(&filter->current_box,
-				      old_face_center_x / valid_num,
-				      old_face_center_y / valid_num,
 				      old_face_width / valid_num,
-				      old_face_height / valid_num);
+				      old_face_height / valid_num,
+				      old_face_center_x / valid_num,
+				      old_face_center_y / valid_num);
 		} else {
 			//no human in history
 			set_box_value(&filter->current_box, -1, -1, -1, -1);
@@ -453,7 +459,7 @@ static inline void calcRectInner(struct circle_avatar_filter_data *filter, int i
 	float current_face_center_y = filter->output_coordinates_data[index * TFLITE_COORDINATES_NUM + 1]
 				      + filter->anchors[index][1] + filter->y_bias;
 	float current_face_width = filter->output_coordinates_data[index * TFLITE_COORDINATES_NUM + 2];
-	current_face_width *= 3.f / 4.f;
+	current_face_width *= filter->clip_width_pro;
 	float current_face_height = filter->output_coordinates_data[index * TFLITE_COORDINATES_NUM + 3];
 
 
@@ -489,11 +495,7 @@ static inline void calcRectInner(struct circle_avatar_filter_data *filter, int i
 }
 
 static bool judgeInBoundary(struct box *p_box) {
-	float boundaryX =  p_box->face_width * CIRCLE_AVATAR_BOUNDARY_WIDTH;
-	float boundaryY = p_box->face_height * CIRCLE_AVATAR_BOUNDARY_HEIGHT ;
-	//	blog(LOG_ERROR, "face width = %f, face height = %f", p_box->face_width, p_box->face_height);
-	return !(p_box->face_center_x < boundaryX || p_box->face_center_x > (TFLITE_WIDTH - boundaryX)
-		 || p_box->face_center_y <  boundaryY || p_box->face_center_y > (TFLITE_HEIGHT - boundaryY));
+	return p_box->face_center_x > 0 &&  p_box->face_center_x < TFLITE_WIDTH && p_box->face_center_y > 0 && p_box->face_center_y < TFLITE_HEIGHT;
 }
 
 static void calcRect(struct circle_avatar_filter_data *filter) {
