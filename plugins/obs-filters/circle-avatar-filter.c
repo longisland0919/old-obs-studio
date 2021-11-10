@@ -82,7 +82,7 @@ static void generateAnchors(struct circle_avatar_filter_data* filter) {
 	if (!filter->anchors) {
 		filter->anchors = bzalloc(ANCHORS_WIDTH * sizeof(float *));
 		for (int i = 0; i < ANCHORS_WIDTH; ++i) {
-			filter->anchors[i] = bzalloc(ANCHORS_HEIGHT * sizeof (float ));
+			filter->anchors[i] = bzalloc(ANCHORS_HEIGHT * sizeof (float));
 		}
 	}
 	int pos = 0;
@@ -153,10 +153,13 @@ static void circle_avatar_destroy(void *data)
 		gs_effect_destroy(filter->effect);
 		obs_leave_graphics();
 	}
-
 	if (filter->rgb_int) {
 		bfree(filter->rgb_int);
 		filter->rgb_int = NULL;
+	}
+	if (filter->clip_frame) {
+		bfree(filter->clip_frame);
+		filter->clip_frame = NULL;
 	}
 	if (filter->rgb_f) {
 		bfree(filter->rgb_f);
@@ -180,7 +183,7 @@ static void circle_avatar_destroy(void *data)
 	}
 	if (filter->anchors) {
 		for (int i = 0; i < ANCHORS_WIDTH; ++i) {
-			if (!filter->anchors[i]) {
+			if (filter->anchors[i]) {
 				bfree(filter->anchors[i]);
 				filter->anchors[i] = NULL;
 			}
@@ -204,10 +207,7 @@ static void circle_avatar_destroy(void *data)
 			bfree(p);
 		}
 	}
-	if (filter->clip_frame) {
-		bfree(filter->clip_frame);
-		filter->clip_frame = NULL;
-	}
+
 	bfree(data);
 }
 
@@ -221,19 +221,17 @@ static void *circle_avatar_create(obs_data_t *settings, obs_source_t *context)
 	filter->effect = gs_effect_create_from_file(effect_path, NULL);
 	filter->face_center_param = gs_effect_get_param_by_name(filter->effect, "u_face_center");
 	filter->face_size_param = gs_effect_get_param_by_name(filter->effect, "u_face_size");
-	//
 	obs_leave_graphics();
-
 	bfree(effect_path);
-
-	//	filter->mask_value = obs_data_get_double(settings, "SETTING_MASK");
-	filter->face_size_scale = obs_data_get_double(settings, "FACE_SCALE_SIZE");
-	filter->x_bias = obs_data_get_double(settings, "FACE_X_BIAS");
-	filter->y_bias = obs_data_get_double(settings, "FACE_Y_BIAS");
 	if (!filter->effect) {
 		circle_avatar_destroy(filter);
 		return NULL;
 	}
+
+	filter->face_size_scale = obs_data_get_double(settings, "FACE_SCALE_SIZE");
+	filter->x_bias = obs_data_get_double(settings, "FACE_X_BIAS");
+	filter->y_bias = obs_data_get_double(settings, "FACE_Y_BIAS");
+
 	char *model_path = obs_module_file("tflite/face_detection_front.tflite");
 	TfLiteModel *model =
 		TfLiteModelCreateFromFile(model_path);
@@ -278,7 +276,6 @@ static void circle_avatar_render(void *data, gs_effect_t *effect)
 static struct obs_source_frame *
 circle_avatar_video(void *data, struct obs_source_frame *frame)
 {
-
 	struct circle_avatar_filter_data *filter = data;
 	init_filter_data(frame, filter);
 	clip_frame(frame, filter);
@@ -288,7 +285,6 @@ circle_avatar_video(void *data, struct obs_source_frame *frame)
 		*(filter->rgb_f + i * 3 + 2) = *(filter->rgb_int + i * 3) / 255.0f;
 		*(filter->rgb_f + i * 3 + 1) = *(filter->rgb_int + i * 3 + 1) / 255.0f;
 		*(filter->rgb_f + i * 3) = *(filter->rgb_int + i * 3 + 2) / 255.0f;
-		//
 	}
 	if (!filter->anchors) {
 		generateAnchors(filter);
