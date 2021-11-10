@@ -100,11 +100,20 @@ static void background_mask_destroy(void *data)
 {
 	struct background_mask_filter_data *filter = data;
 
-	if (filter->effect) {
+	if (filter->effect || filter->tex) {
 		obs_enter_graphics();
-		gs_effect_destroy(filter->effect);
+		if (filter->effect)
+			gs_effect_destroy(filter->effect);
+		if (filter->tex)
+			gs_texture_destroy(filter->tex);
 		obs_leave_graphics();
+		filter->tex = NULL;
 		filter->effect = NULL;
+	}
+
+	if (filter->clip_frame) {
+		bfree(filter->clip_frame);
+		filter->clip_frame = NULL;
 	}
 
 	if (filter->rgb_int) {
@@ -136,10 +145,6 @@ static void background_mask_destroy(void *data)
 	if (filter->texelSize) {
 		bfree(filter->texelSize);
 		filter->texelSize = NULL;
-	}
-	if (filter->clip_frame) {
-		bfree(filter->clip_frame);
-		filter->clip_frame = NULL;
 	}
 
 	bfree(data);
@@ -472,8 +477,8 @@ struct obs_source_info background_mask_filter = {
 	.get_name = background_mask_name,
 	.create = background_mask_create,
 	.destroy = background_mask_destroy,
-	.video_render = background_mask_render,
 	.filter_video = background_mask_video,
+	.video_render = background_mask_render,
 	.update = background_mask_update,
 	.get_properties = background_mask_properties,
 	.get_defaults = background_mask_defaults,
