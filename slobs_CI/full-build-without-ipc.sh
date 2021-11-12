@@ -302,7 +302,7 @@ copy_dependency_lib() {
   sudo /bin/chmod u+w ./bin/libfdk-aac.2.dylib
   sudo /bin/chmod u+w ./bin/libcurl.4.dylib
   sudo /bin/chmod u+w ./bin/liblzma.5.dylib
-
+  sudo /bin/chmod u+w ./bin/libcrypto.1.1.dylib
 
   sudo install_name_tool -change /usr/local/opt/openssl@1.1/lib/libssl.1.1.dylib @rpath/libssl.1.1.dylib ./bin/libdb-18.1.dylib
   sudo install_name_tool -change /usr/local/opt/openssl@1.1/lib/libcrypto.1.1.dylib @rpath/libcrypto.1.1.dylib ./bin/libdb-18.1.dylib
@@ -332,15 +332,15 @@ copy_dependency_lib() {
   sudo install_name_tool -change /tmp/obsdeps/lib/libspeexdsp.1.dylib  @rpath/libspeexdsp.1.dylib ./obs-plugins/obs-filters.so
   sudo install_name_tool -change /tmp/obsdeps/lib/librnnoise.0.dylib  @rpath/librnnoise.0.dylib ./obs-plugins/obs-filters.so
 
+if [ -f "./obs-plugins/slobs-virtual-cam.so" ]; then
   sudo install_name_tool -change /tmp/obsdeps/lib/libavcodec.58.dylib @rpath/libavcodec.58.dylib ./obs-plugins/slobs-virtual-cam.so
   sudo install_name_tool -change /tmp/obsdeps/lib/libavfilter.7.dylib @rpath/libavfilter.7.dylib ./obs-plugins/slobs-virtual-cam.so
   sudo install_name_tool -change /tmp/obsdeps/lib/libavdevice.58.dylib @rpath/libavdevice.58.dylib ./obs-plugins/slobs-virtual-cam.so
   sudo install_name_tool -change /tmp/obsdeps/lib/libavutil.56.dylib @rpath/libavutil.56.dylib ./obs-plugins/slobs-virtual-cam.so
   sudo install_name_tool -change /tmp/obsdeps/lib/libswscale.5.dylib @rpath/libswscale.5.dylib ./obs-plugins/slobs-virtual-cam.so
-
   sudo install_name_tool -change /tmp/obsdeps/lib/libavformat.58.dylib @rpath/libavformat.58.dylib ./obs-plugins/slobs-virtual-cam.so
   sudo install_name_tool -change /tmp/obsdeps/lib/libswresample.3.dylib @rpath/libswresample.3.dylib ./obs-plugins/slobs-virtual-cam.so
-
+fi
 
   sudo install_name_tool -change /tmp/obsdeps/lib/libx264.161.dylib @rpath/libx264.161.dylib ./obs-plugins/obs-x264.so
   sudo install_name_tool -change /tmp/obsdeps/lib/libx264.155.dylib @rpath/libx264.155.dylib ./obs-plugins/obs-x264.so
