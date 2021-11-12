@@ -147,15 +147,18 @@ static void _window_capture_destroy(void *data)
 	os_event_destroy(cap->stop_event);
 
 	pthread_mutex_destroy(&cap->dc->mutex);
-	if (cap->dc->disp) {
-		CFRelease(cap->dc->disp);
-		cap->dc->disp = NULL;
+	if(cap->dc) {
+		if (cap->dc->disp) {
+			CFRelease(cap->dc->disp);
+			cap->dc->disp = NULL;
+		}
+		if (cap->dc->screen) {
+			[cap->dc->screen release];
+			cap->dc->screen = nil;
+		}
+		bfree(cap->dc);
+		cap->dc = NULL;
 	}
-	if (cap->dc->screen) {
-		[cap->dc->screen release];
-		cap->dc->screen = nil;
-	}
-
 	os_event_destroy(cap->dc->disp_finished);
 }
 
