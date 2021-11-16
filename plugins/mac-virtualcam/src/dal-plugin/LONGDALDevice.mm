@@ -17,20 +17,20 @@
 //  You should have received a copy of the GNU General Public License
 //  along with obs-mac-virtualcam. If not, see <http://www.gnu.org/licenses/>.
 
-#import "OBSDALDevice.h"
+#import "LONGDALDevice.h"
 
 #import <CoreFoundation/CoreFoundation.h>
 #include <IOKit/audio/IOAudioTypes.h>
 
-#import "OBSDALPlugIn.h"
+#import "LONGDALPlugIn.h"
 #import "Logging.h"
 
-@interface OBSDALDevice ()
+@interface LONGDALDevice ()
 @property BOOL excludeNonDALAccess;
 @property pid_t masterPid;
 @end
 
-@implementation OBSDALDevice
+@implementation LONGDALDevice
 
 // Note that the DAL's API calls HasProperty before calling GetPropertyDataSize. This means that it can be assumed that address is valid for the property involved.
 - (UInt32)getPropertyDataSizeWithAddress:(CMIOObjectPropertyAddress)address
@@ -103,7 +103,7 @@
 
 	switch (address.mSelector) {
 	case kCMIOObjectPropertyName:
-		*static_cast<CFStringRef *>(data) = CFSTR("OBS Virtual Camera");
+		*static_cast<CFStringRef *>(data) = CFSTR("Vizard虚拟摄像头");
 		*dataUsed = sizeof(CFStringRef);
 		break;
 	case kCMIOObjectPropertyManufacturer:
@@ -124,12 +124,12 @@
 		break;
 	case kCMIODevicePropertyDeviceUID:
 		*static_cast<CFStringRef *>(data) =
-			CFSTR("obs-virtual-cam-device");
+			CFSTR("vizard-virtual-cam-device");
 		*dataUsed = sizeof(CFStringRef);
 		break;
 	case kCMIODevicePropertyModelUID:
 		*static_cast<CFStringRef *>(data) =
-			CFSTR("obs-virtual-cam-model");
+			CFSTR("vizard-virtual-cam-model");
 		*dataUsed = sizeof(CFStringRef);
 		break;
 	case kCMIODevicePropertyTransportType:

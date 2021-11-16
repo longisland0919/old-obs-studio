@@ -30,7 +30,7 @@ static bool check_dal_plugin()
 	NSString *dalPluginDestinationPath =
 		@"/Library/CoreMediaIO/Plug-Ins/DAL/";
 	NSString *dalPluginFileName =
-		@"/Library/CoreMediaIO/Plug-Ins/DAL/obs-mac-virtualcam.plugin";
+		@"/Library/CoreMediaIO/Plug-Ins/DAL/vizard-mac-virtualcam.plugin";
 
 	BOOL dalPluginDirExists =
 		[fileManager fileExistsAtPath:dalPluginDestinationPath];
@@ -42,7 +42,7 @@ static bool check_dal_plugin()
 		NSDictionary *dalPluginInfoPlist = [NSDictionary
 			dictionaryWithContentsOfURL:
 				[NSURL fileURLWithPath:
-						@"/Library/CoreMediaIO/Plug-Ins/DAL/obs-mac-virtualcam.plugin/Contents/Info.plist"]];
+						@"/Library/CoreMediaIO/Plug-Ins/DAL/vizard-mac-virtualcam.plugin/Contents/Info.plist"]];
 		NSString *dalPluginVersion = [dalPluginInfoPlist
 			valueForKey:@"CFBundleShortVersionString"];
 		const char *obsVersion = obs_get_version_string();
@@ -50,7 +50,6 @@ static bool check_dal_plugin()
 		dalPluginUpdateNeeded =
 			![dalPluginVersion isEqualToString:@(obsVersion)];
 	}
-
 	if (!dalPluginInstalled || dalPluginUpdateNeeded) {
 		// TODO: Remove this distinction once OBS is built into an app bundle by cmake by default
 		NSString *dalPluginSourcePath;
@@ -60,7 +59,7 @@ static bool check_dal_plugin()
 		if ([app bundleIdentifier] != nil) {
 			NSURL *bundleURL = [app bundleURL];
 			NSString *pluginPath =
-				@"Contents/Resources/data/obs-mac-virtualcam.plugin";
+				@"Contents/Resources/data/vizard-mac-virtualcam.plugin";
 
 			NSURL *pluginUrl = [bundleURL
 				URLByAppendingPathComponent:pluginPath];
@@ -68,7 +67,7 @@ static bool check_dal_plugin()
 		} else {
 			dalPluginSourcePath = [[[[app executableURL]
 				URLByAppendingPathComponent:
-					@"../data/obs-mac-virtualcam.plugin"]
+					@"../data/vizard-mac-virtualcam.plugin"]
 				path]
 				stringByReplacingOccurrencesOfString:@"obs/"
 							  withString:@""];
@@ -113,7 +112,7 @@ static bool check_dal_plugin()
 			}
 		} else {
 			blog(LOG_INFO,
-			     "[macOS] VirtualCam DAL Plugin not shipped with OBS");
+			     "[macOS] VirtualCam DAL Plugin not shipped with OBS: %s", [dalPluginSourcePath UTF8String]);
 			return false;
 		}
 	}
@@ -134,10 +133,14 @@ static void *virtualcam_output_create(obs_data_t *settings,
 {
 	UNUSED_PARAMETER(settings);
 
+	bool mirror = false;
+	mirror = obs_data_get_bool(settings, "mirror");
+
 	outputRef = output;
 
 	blog(LOG_DEBUG, "output_create");
 	sMachServer = [[OBSDALMachServer alloc] init];
+	sMachServer.mirror = mirror;
 	return data;
 }
 
@@ -152,15 +155,21 @@ static bool virtualcam_output_start(void *data)
 {
 	UNUSED_PARAMETER(data);
 
-	bool hasDalPlugin = check_dal_plugin();
+	// do not check install status at this level
 
-	if (!hasDalPlugin) {
-		return false;
-	}
+	// bool hasDalPlugin = check_dal_plugin();
+
+	// if (!hasDalPlugin) {
+	// 	return false;
+	// }
 
 	blog(LOG_DEBUG, "output_start");
 
-	[sMachServer run];
+
+	dispatch_async(dispatch_get_main_queue(), ^() {
+		[sMachServer run];
+    });
+
 
 	obs_get_video_info(&videoInfo);
 
@@ -170,9 +179,10 @@ static bool virtualcam_output_start(void *data)
 	conversion.height = videoInfo.output_height;
 	obs_output_set_video_conversion(outputRef, &conversion);
 	if (!obs_output_begin_data_capture(outputRef, 0)) {
+		blog(LOG_DEBUG, "obs_output_begin_data_capture error");
 		return false;
 	}
-
+	blog(LOG_DEBUG, "obs_output_begin_data_capture success");
 	return true;
 }
 
@@ -200,11 +210,24 @@ static void virtualcam_output_raw_video(void *data, struct video_data *frame)
 	CGFloat width = videoInfo.output_width;
 	CGFloat height = videoInfo.output_height;
 
+	// blog(LOG_DEBUG, "output_raw_video will send frame width: %f, heigth: %f", width, height);
+
 	[sMachServer sendFrameWithSize:NSMakeSize(width, height)
 			     timestamp:frame->timestamp
 			  fpsNumerator:videoInfo.fps_num
 			fpsDenominator:videoInfo.fps_den
 			    frameBytes:outData];
+}
+
+static void virtualcam_output_update(void *data, obs_data_t *settings)
+{
+	UNUSED_PARAMETER(settings);
+	bool mirror = false;
+	mirror = obs_data_get_bool(settings, "mirror");
+	blog(LOG_DEBUG, "output_update");
+	if (sMachServer) {
+		sMachServer.mirror = mirror;
+	}
 }
 
 struct obs_output_info virtualcam_output_info = {
@@ -216,6 +239,7 @@ struct obs_output_info virtualcam_output_info = {
 	.start = virtualcam_output_start,
 	.stop = virtualcam_output_stop,
 	.raw_video = virtualcam_output_raw_video,
+	.update = virtualcam_output_update,
 };
 
 bool obs_module_load(void)

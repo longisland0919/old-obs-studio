@@ -17,7 +17,7 @@
 //  You should have received a copy of the GNU General Public License
 //  along with obs-mac-virtualcam. If not, see <http://www.gnu.org/licenses/>.
 
-#import "OBSDALPlugIn.h"
+#import "LONGDALPlugIn.h"
 
 #import <CoreMediaIO/CMIOHardwarePlugin.h>
 
@@ -27,9 +27,9 @@ typedef enum {
 	PlugInStateNotStarted = 0,
 	PlugInStateWaitingForServer,
 	PlugInStateReceivingFrames,
-} OBSDALPlugInState;
+} LONGDALPlugInState;
 
-@interface OBSDALPlugin () <MachClientDelegate> {
+@interface LONGDALPlugIn () <MachClientDelegate> {
 	//! Serial queue for all state changes that need to be concerned with thread safety
 	dispatch_queue_t _stateQueue;
 
@@ -39,16 +39,16 @@ typedef enum {
 	//! Timeout timer when we haven't received frames for 5s
 	dispatch_source_t _timeoutTimer;
 }
-@property OBSDALPlugInState state;
-@property OBSDALMachClient *machClient;
+@property LONGDALPlugInState state;
+@property LONGDALMachClient *machClient;
 
 @end
 
-@implementation OBSDALPlugin
+@implementation LONGDALPlugIn
 
-+ (OBSDALPlugin *)SharedPlugIn
++ (LONGDALPlugIn *)SharedPlugIn
 {
-	static OBSDALPlugin *sPlugIn = nil;
+	static LONGDALPlugIn *sPlugIn = nil;
 	static dispatch_once_t sOnceToken;
 	dispatch_once(&sOnceToken, ^{
 		sPlugIn = [[self alloc] init];
@@ -60,7 +60,7 @@ typedef enum {
 {
 	if (self = [super init]) {
 		_stateQueue = dispatch_queue_create(
-			"com.obsproject.obs-mac-virtualcam.dal.state",
+			"ai.vizard.vizard-studio-mac-virtualcam.dal.state",
 			DISPATCH_QUEUE_SERIAL);
 
 		_timeoutTimer = dispatch_source_create(
@@ -74,7 +74,7 @@ typedef enum {
 			}
 		});
 
-		_machClient = [[OBSDALMachClient alloc] init];
+		_machClient = [[LONGDALMachClient alloc] init];
 		_machClient.delegate = self;
 
 		_machConnectTimer = dispatch_source_create(
@@ -140,7 +140,7 @@ typedef enum {
 		return true;
 	default:
 		DLog(@"PlugIn unhandled hasPropertyWithAddress for %@",
-		     [OBSDALObjectStore
+		     [LONGDALObjectStore
 			     StringFromPropertySelector:address.mSelector]);
 		return false;
 	};
@@ -153,7 +153,7 @@ typedef enum {
 		return false;
 	default:
 		DLog(@"PlugIn unhandled isPropertySettableWithAddress for %@",
-		     [OBSDALObjectStore
+		     [LONGDALObjectStore
 			     StringFromPropertySelector:address.mSelector]);
 		return false;
 	};
@@ -168,7 +168,7 @@ typedef enum {
 		return sizeof(CFStringRef);
 	default:
 		DLog(@"PlugIn unhandled getPropertyDataSizeWithAddress for %@",
-		     [OBSDALObjectStore
+		     [LONGDALObjectStore
 			     StringFromPropertySelector:address.mSelector]);
 		return 0;
 	};
@@ -189,7 +189,7 @@ typedef enum {
 		return;
 	default:
 		DLog(@"PlugIn unhandled getPropertyDataWithAddress for %@",
-		     [OBSDALObjectStore
+		     [LONGDALObjectStore
 			     StringFromPropertySelector:address.mSelector]);
 		return;
 	};
@@ -202,7 +202,7 @@ typedef enum {
 			      data:(nonnull const void *)data
 {
 	DLog(@"PlugIn unhandled setPropertyDataWithAddress for %@",
-	     [OBSDALObjectStore StringFromPropertySelector:address.mSelector]);
+	     [LONGDALObjectStore StringFromPropertySelector:address.mSelector]);
 }
 
 #pragma mark - MachClientDelegate
@@ -211,7 +211,8 @@ typedef enum {
 		    timestamp:(uint64_t)timestamp
 		 fpsNumerator:(uint32_t)fpsNumerator
 	       fpsDenominator:(uint32_t)fpsDenominator
-		    frameData:(NSData *)frameData
+		    frameData:(NSData *)frameData 
+			mirror:(BOOL)mirror
 {
 	dispatch_sync(_stateQueue, ^{
 		if (_state == PlugInStateWaitingForServer) {
@@ -242,7 +243,8 @@ typedef enum {
 			      timestamp:timestamp
 			   fpsNumerator:fpsNumerator
 			 fpsDenominator:fpsDenominator
-			      frameData:frameData];
+			      frameData:frameData 
+				  mirror:mirror];
 }
 
 - (void)receivedStop

@@ -15,12 +15,13 @@ NS_ASSUME_NONNULL_BEGIN
 		    timestamp:(uint64_t)timestamp
 		 fpsNumerator:(uint32_t)fpsNumerator
 	       fpsDenominator:(uint32_t)fpsDenominator
-		    frameData:(NSData *)frameData;
+		    frameData:(NSData *)frameData 
+			   mirror:(BOOL)mirror;
 - (void)receivedStop;
 
 @end
 
-@interface OBSDALMachClient : NSObject
+@interface LONGDALMachClient : NSObject
 
 @property (nullable, weak) id<MachClientDelegate> delegate;
 

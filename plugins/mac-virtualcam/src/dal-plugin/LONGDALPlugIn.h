@@ -20,23 +20,23 @@
 #import <Foundation/Foundation.h>
 #import <CoreMediaIO/CMIOHardwarePlugIn.h>
 
-#import "OBSDALObjectStore.h"
-#import "OBSDALMachClient.h"
-#import "OBSDALStream.h"
+#import "LONGDALObjectStore.h"
+#import "LONGDALMachClient.h"
+#import "LONGDALStream.h"
 
-#define kTestCardWidthKey @"obs-mac-virtualcam-test-card-width"
-#define kTestCardHeightKey @"obs-mac-virtualcam-test-card-height"
-#define kTestCardFPSKey @"obs-mac-virtualcam-test-card-fps"
+#define kTestCardWidthKey @"vizard-mac-virtualcam-test-card-width"
+#define kTestCardHeightKey @"vizard-mac-virtualcam-test-card-height"
+#define kTestCardFPSKey @"vizard-mac-virtualcam-test-card-fps"
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface OBSDALPlugin : NSObject <CMIOObject>
+@interface LONGDALPlugIn : NSObject <CMIOObject>
 
 @property CMIOObjectID objectId;
-@property (readonly) OBSDALMachClient *machClient;
-@property OBSDALStream *stream;
+@property (readonly) LONGDALMachClient *machClient;
+@property LONGDALStream *stream;
 
-+ (OBSDALPlugin *)SharedPlugIn;
++ (LONGDALPlugIn *)SharedPlugIn;
 
 - (void)initialize;
 
