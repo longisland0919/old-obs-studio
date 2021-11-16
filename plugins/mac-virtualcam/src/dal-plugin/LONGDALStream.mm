@@ -17,7 +17,7 @@
 //  You should have received a copy of the GNU General Public License
 //  along with obs-mac-virtualcam. If not, see <http://www.gnu.org/licenses/>.
 
-#import "OBSDALStream.h"
+#import "LONGDALStream.h"
 
 #import <AppKit/AppKit.h>
 #import <mach/mach_time.h>
@@ -25,9 +25,9 @@
 
 #import "Logging.h"
 #import "CMSampleBufferUtils.h"
-#import "OBSDALPlugIn.h"
+#import "LONGDALPlugIn.h"
 
-@interface OBSDALStream () {
+@interface LONGDALStream () {
 	CMSimpleQueueRef _queue;
 	CFTypeRef _clock;
 	NSImage *_testCardImage;
@@ -47,7 +47,7 @@
 
 @end
 
-@implementation OBSDALStream
+@implementation LONGDALStream
 
 #define DEFAULT_FPS 30.0
 #define DEFAULT_WIDTH 1280
@@ -136,6 +136,7 @@
 			integerValue];
 		int height = [[defaults objectForKey:kTestCardHeightKey]
 			integerValue];
+
 		if (width == 0 || height == 0) {
 			_testCardSize =
 				NSMakeSize(DEFAULT_WIDTH, DEFAULT_HEIGHT);
@@ -166,7 +167,7 @@
 {
 	if (_testCardImage == nil) {
 		NSString *bundlePath = [[NSBundle
-			bundleForClass:[OBSDALStream class]] bundlePath];
+			bundleForClass:[LONGDALStream class]] bundlePath];
 		NSString *placeHolderPath = [bundlePath
 			stringByAppendingString:
 				@"/Contents/Resources/placeholder.png"];
@@ -174,7 +175,7 @@
 		NSURL *homeUrl = [fileManager homeDirectoryForCurrentUser];
 		NSURL *customUrl = [homeUrl
 			URLByAppendingPathComponent:
-				@"Library/Application Support/obs-studio/plugin_config/mac-virtualcam/placeholder.png"];
+				@"Library/Application Support/vizard/plugin_config/mac-virtualcam/placeholder.png"];
 		NSString *customPlaceHolder = customUrl.path;
 		if ([fileManager isReadableFileAtPath:customPlaceHolder])
 			placeHolderPath = customPlaceHolder;
@@ -355,6 +356,7 @@
 	      fpsNumerator:(uint32_t)fpsNumerator
 	    fpsDenominator:(uint32_t)fpsDenominator
 		 frameData:(NSData *)frameData
+		 	mirror:(BOOL)mirror
 {
 	if (CMSimpleQueueGetFullness(self.queue) >= 1.0) {
 		DLog(@"Queue is full, bailing out");
@@ -376,7 +378,7 @@
 
 	CMSampleBufferRef sampleBuffer;
 	CMSampleBufferCreateFromData(size, timingInfo, self.sequenceNumber,
-				     frameData, &sampleBuffer);
+				     frameData, &sampleBuffer, mirror);
 	CMSimpleQueueEnqueue(self.queue, sampleBuffer);
 
 	// Inform the clients that the queue has been altered
@@ -542,7 +544,7 @@
 	case kCMIOStreamPropertyInitialPresentationTimeStampForLinkedAndSyncedAudio:
 	case kCMIOStreamPropertyOutputBuffersNeededForThrottledPlayback:
 		DLog(@"TODO: %@",
-		     [OBSDALObjectStore
+		     [LONGDALObjectStore
 			     StringFromPropertySelector:address.mSelector]);
 		return false;
 	default:

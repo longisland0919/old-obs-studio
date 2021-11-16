@@ -5,16 +5,16 @@
 //  Created by John Boiles  on 5/5/20.
 //
 
-#import "OBSDALMachClient.h"
+#import "LONGDALMachClient.h"
 #import "MachProtocol.h"
 #import "Logging.h"
 
-@interface OBSDALMachClient () <NSPortDelegate> {
+@interface LONGDALMachClient () <NSPortDelegate> {
 	NSPort *_receivePort;
 }
 @end
 
-@implementation OBSDALMachClient
+@implementation LONGDALMachClient
 
 - (void)dealloc
 {
@@ -69,7 +69,6 @@
 - (BOOL)connectToServer
 {
 	DLogFunc(@"");
-
 	NSPort *sendPort = [self serverPort];
 	if (sendPort == nil) {
 		ELog(@"Unable to connect to server port");
@@ -88,6 +87,7 @@
 		return NO;
 	}
 
+	// NSLog(@"OBS DAL Plugin Mach Client sendBeforeDate success, receivePort: %d， sendPort: %d, msgid：%d", ((NSMachPort *)_receivePort).machPort, ((NSMachPort *)sendPort).machPort, message.msgid);
 	return YES;
 }
 
@@ -101,7 +101,7 @@
 		break;
 	case MachMsgIdFrame:
 		VLog(@"Received frame message");
-		if (components.count >= 6) {
+		if (components.count >= 7) {
 			CGFloat width;
 			[components[0] getBytes:&width length:sizeof(width)];
 			CGFloat height;
@@ -118,12 +118,16 @@
 			uint32_t fpsDenominator;
 			[components[5] getBytes:&fpsDenominator
 					 length:sizeof(fpsDenominator)];
+			BOOL mirror;
+			[components[6] getBytes:&mirror
+					 length:sizeof(mirror)];
+
 			[self.delegate
 				receivedFrameWithSize:NSMakeSize(width, height)
 					    timestamp:timestamp
 					 fpsNumerator:fpsNumerator
 				       fpsDenominator:fpsDenominator
-					    frameData:frameData];
+					    frameData:frameData mirror:mirror];
 		}
 		break;
 	case MachMsgIdStop:

@@ -11,6 +11,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface OBSDALMachServer : NSObject
 
+@property BOOL mirror;
+
 - (void)run;
 
 /*!

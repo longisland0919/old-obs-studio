@@ -1,5 +1,5 @@
 //
-//  Stream.h
+//  Device.h
 //  obs-mac-virtualcam
 //
 //  Created by John Boiles  on 4/10/20.
@@ -19,29 +19,15 @@
 
 #import <Foundation/Foundation.h>
 
-#import "OBSDALObjectStore.h"
+#import "LONGDALObjectStore.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface OBSDALStream : NSObject <CMIOObject>
+@interface LONGDALDevice : NSObject <CMIOObject>
 
-@property CMIOStreamID objectId;
-
-- (instancetype _Nonnull)init;
-
-- (CMSimpleQueueRef)copyBufferQueueWithAlteredProc:
-			    (CMIODeviceStreamQueueAlteredProc)alteredProc
-				     alteredRefCon:(void *)alteredRefCon;
-
-- (void)startServingDefaultFrames;
-
-- (void)stopServingDefaultFrames;
-
-- (void)queueFrameWithSize:(NSSize)size
-		 timestamp:(uint64_t)timestamp
-	      fpsNumerator:(uint32_t)fpsNumerator
-	    fpsDenominator:(uint32_t)fpsDenominator
-		 frameData:(NSData *)frameData;
+@property CMIOObjectID objectId;
+@property CMIOObjectID pluginId;
+@property CMIOObjectID streamId;
 
 @end
 

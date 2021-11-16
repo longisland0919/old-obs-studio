@@ -43,9 +43,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 @end
 
-@interface OBSDALObjectStore : NSObject
+@interface LONGDALObjectStore : NSObject
 
-+ (OBSDALObjectStore *)SharedObjectStore;
++ (LONGDALObjectStore *)SharedObjectStore;
 
 + (NSObject<CMIOObject> *)GetObjectWithId:(CMIOObjectID)objectId;
 

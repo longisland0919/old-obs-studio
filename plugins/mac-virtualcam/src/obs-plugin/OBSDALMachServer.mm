@@ -158,12 +158,19 @@
 			dataWithBytesNoCopy:(void *)frameBytes
 				     length:size.width * size.height * 2
 			       freeWhenDone:NO];
+
+		BOOL mirror = self.mirror;
+		NSData *mirrorData = [NSData dataWithBytes:&mirror
+						    length:sizeof(mirror)];
 		[self sendMessageToClientsWithMsgId:MachMsgIdFrame
 					 components:@[
-						 widthData, heightData,
-						 timestampData, frameData,
+						 widthData, 
+						 heightData,
+						 timestampData, 
+						 frameData,
 						 fpsNumeratorData,
-						 fpsDenominatorData
+						 fpsDenominatorData,
+						 mirrorData
 					 ]];
 	}
 }
