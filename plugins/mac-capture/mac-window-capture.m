@@ -156,10 +156,10 @@ static void _window_capture_destroy(void *data)
 			[cap->dc->screen release];
 			cap->dc->screen = nil;
 		}
+		os_event_destroy(cap->dc->disp_finished);
 		bfree(cap->dc);
 		cap->dc = NULL;
 	}
-	os_event_destroy(cap->dc->disp_finished);
 }
 
 
