@@ -30,9 +30,12 @@
 - (void)dealloc
 {
 	blog(LOG_DEBUG, "tearing down MachServer");
-	[self.runLoop removePort:self.port forMode:NSDefaultRunLoopMode];
-	[self.port invalidate];
-	self.port.delegate = nil;
+	if (self.port)
+	{
+		[self.runLoop removePort:self.port forMode:NSDefaultRunLoopMode];
+		[self.port invalidate];
+		self.port.delegate = nil;
+	}
 }
 
 - (void)run
