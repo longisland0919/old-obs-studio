@@ -2516,8 +2516,8 @@ void stop_raw_video(video_t *v,
 		    void *param)
 {
 	struct obs_core_video *video = &obs->video;
-	os_atomic_dec_long(&video->raw_active);
 	video_output_disconnect(v, callback, param);
+	os_atomic_dec_long(&video->raw_active);
 }
 
 void obs_add_raw_video_callback(const struct video_scale_info *conversion,
