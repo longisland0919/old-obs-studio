@@ -75,13 +75,12 @@ struct video_output {
 
 	pthread_mutex_t input_mutex;
 	DARRAY(struct video_input) inputs;
+	volatile long repeat_input;
 
 	size_t available_frames;
 	size_t first_added;
 	size_t last_added;
 	struct cached_frame_info caches[NUM_RENDERING_MODES][MAX_CACHE_SIZE];
-	struct cached_frame_info streaming_cache[MAX_CACHE_SIZE];
-	struct cached_frame_info recording_cache[MAX_CACHE_SIZE];
 
 	volatile bool raw_active;
 	volatile long gpu_refs;
@@ -179,6 +178,21 @@ static inline bool video_output_cur_frame(struct video_output *video)
 		recording_frame_info->frame.timestamp += video->frame_time;
 		complete = --recording_frame_info->count == 0;
 		skipped = recording_frame_info->skipped > 0;
+	}
+	//skip repeat frame
+	if (!complete && !os_atomic_load_long(&video->repeat_input)){
+		if (!obs_get_multiple_rendering()) {
+			main_frame_info->count = 0;
+			os_atomic_add_long(&video->skipped_frames, main_frame_info->skipped);
+			main_frame_info->skipped = 0;
+		} else {
+			streaming_frame_info->count = 0;
+			recording_frame_info->count = 0;
+			os_atomic_add_long(&video->skipped_frames, recording_frame_info->skipped);
+			recording_frame_info->skipped = 0;
+			streaming_frame_info->skipped = 0;
+		}
+		complete = true;
 	}
 
 	if (complete) {
@@ -379,6 +393,21 @@ static inline void reset_frames(video_t *video)
 {
 	os_atomic_set_long(&video->skipped_frames, 0);
 	os_atomic_set_long(&video->total_frames, 0);
+}
+
+void video_repeat_dec(video_t * video)
+{
+	if (!os_atomic_load_long(&video->repeat_input))
+	{
+		blog(LOG_WARNING, "video_repeat_remove repeat_input == 0, are you remove more?");
+		return;
+	}
+	os_atomic_dec_long(&video->repeat_input);
+}
+
+void video_repeat_inc(video_t * video)
+{
+	os_atomic_inc_long(&video->repeat_input);
 }
 
 bool video_output_connect(
