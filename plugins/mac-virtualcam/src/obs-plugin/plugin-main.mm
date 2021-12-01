@@ -162,7 +162,9 @@ static void virtualcam_output_destroy(void *data)
 
 static bool virtualcam_output_start(void *data)
 {
-	UNUSED_PARAMETER(data);
+//	UNUSED_PARAMETER(data);
+	((virtualcam_output_data *) data)->drop_num = 0;
+	((virtualcam_output_data *) data)->last_frame = nullptr;
 
 	// do not check install status at this level
 
@@ -174,11 +176,9 @@ static bool virtualcam_output_start(void *data)
 
 	blog(LOG_DEBUG, "output_start");
 
-
 	dispatch_async(dispatch_get_main_queue(), ^() {
 		[sMachServer run];
-    });
-
+    	});
 
 	obs_get_video_info(&videoInfo);
 
@@ -218,7 +218,10 @@ static void virtualcam_output_raw_video(void *data, struct video_data *frame)
 	if (output_data)
 	{
 		if (output_data->last_frame == outData)
+		{
+			output_data->drop_num ++;
 			return;
+		}
 		output_data->last_frame = outData;
 	}
 	if (frame->linesize[0] != (videoInfo.output_width * 2)) {
