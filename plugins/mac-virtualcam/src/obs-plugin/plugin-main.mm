@@ -126,7 +126,11 @@ static const char *virtualcam_output_get_name(void *type_data)
 }
 
 // This is a dummy pointer so we have something to return from virtualcam_output_create
-static void *data = &data;
+//static void *data = &data;
+struct virtualcam_output_data {
+	int drop_num;
+	uint8_t * last_frame;
+};
 
 static void *virtualcam_output_create(obs_data_t *settings,
 				      obs_output_t *output)
@@ -141,6 +145,10 @@ static void *virtualcam_output_create(obs_data_t *settings,
 	blog(LOG_DEBUG, "output_create");
 	sMachServer = [[OBSDALMachServer alloc] init];
 	sMachServer.mirror = mirror;
+	auto* data = static_cast<virtualcam_output_data *>(
+		bzalloc(sizeof(virtualcam_output_data)));
+	data->drop_num = 0;
+	data->last_frame = nullptr;
 	return data;
 }
 
@@ -149,6 +157,7 @@ static void virtualcam_output_destroy(void *data)
 	UNUSED_PARAMETER(data);
 	blog(LOG_DEBUG, "output_destroy");
 	sMachServer = nil;
+	bfree(data);
 }
 
 static bool virtualcam_output_start(void *data)
@@ -196,11 +205,22 @@ static void virtualcam_output_stop(void *data, uint64_t ts)
 	[sMachServer stop];
 }
 
+static int virtualcam_output_get_dropped_num(void* data)
+{
+	return 	((virtualcam_output_data*) data)->drop_num;
+}
+
 static void virtualcam_output_raw_video(void *data, struct video_data *frame)
 {
-	UNUSED_PARAMETER(data);
-
+	auto* output_data =
+		static_cast<virtualcam_output_data *>(data);
 	uint8_t *outData = frame->data[0];
+	if (output_data)
+	{
+		if (output_data->last_frame == outData)
+			return;
+		output_data->last_frame = outData;
+	}
 	if (frame->linesize[0] != (videoInfo.output_width * 2)) {
 		blog(LOG_ERROR,
 		     "unexpected frame->linesize (expected:%d actual:%d)",
@@ -240,6 +260,7 @@ struct obs_output_info virtualcam_output_info = {
 	.stop = virtualcam_output_stop,
 	.raw_video = virtualcam_output_raw_video,
 	.update = virtualcam_output_update,
+	.get_dropped_frames = virtualcam_output_get_dropped_num,
 };
 
 bool obs_module_load(void)
