@@ -145,6 +145,15 @@ static void *virtualcam_output_create(obs_data_t *settings,
 	blog(LOG_DEBUG, "output_create");
 	sMachServer = [[OBSDALMachServer alloc] init];
 	sMachServer.mirror = mirror;
+	sMachServer.machClientConnectStateChanged = ^(MachClientConnectState state) {
+		// blog(LOG_DEBUG, "virtualcam_receive_dal_message: %d", state); 
+		signal_handler_t *handler = obs_output_get_signal_handler(outputRef);
+		if (state == MachClientConnectStateConnect) {
+			signal_handler_signal(handler, "connect", nullptr);
+		} else if (state == MachClientConnectStateDisconnect) {
+			signal_handler_signal(handler, "disconnect", nullptr);
+		}
+    };
 	auto* data = static_cast<virtualcam_output_data *>(
 		bzalloc(sizeof(virtualcam_output_data)));
 	data->drop_num = 0;
@@ -178,7 +187,7 @@ static bool virtualcam_output_start(void *data)
 
 	dispatch_async(dispatch_get_main_queue(), ^() {
 		[sMachServer run];
-    	});
+    });
 
 	obs_get_video_info(&videoInfo);
 
