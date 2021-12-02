@@ -84,6 +84,8 @@ static const char *output_signals[] = {
 	"void writing(ptr output)",
 	"void wrote(ptr output)",
 	"void writing_error(ptr output)",
+	"void connect(ptr output)",
+	"void disconnect(ptr output)",
 	NULL
 };
 
