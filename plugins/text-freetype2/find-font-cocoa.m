@@ -56,6 +56,7 @@ void load_os_font_list(void)
 {
 	@autoreleasepool {
 		BOOL is_dir;
+		BOOL is_dir_v2;
 		NSArray *paths = NSSearchPathForDirectoriesInDomains(
 			NSLibraryDirectory, NSAllDomainsMask, true);
 
@@ -74,8 +75,20 @@ void load_os_font_list(void)
 				blog(LOG_DEBUG, "[Text-FreeType] load_os_font_list: Add font path %s", font_path_str);
 				add_path_fonts(file_manager, font_path);
 			}
-		}
 
+			// support /System/Library/AssetsV2/
+			NSString *font_path_v2 =
+				[path stringByAppendingPathComponent:@"AssetsV2"];
+			bool folder_v2_exists = [file_manager
+				fileExistsAtPath:font_path_v2
+				     isDirectory:&is_dir_v2];
+			if (folder_v2_exists && is_dir_v2) {
+				const char *font_path_str = [font_path_v2 UTF8String];
+				blog(LOG_DEBUG, "[Text-FreeType] load_os_font_list: Add font path v2 %s", font_path_str);
+				add_path_fonts(file_manager, font_path_v2);
+			}
+		}
+		blog(LOG_DEBUG, "[Text-FreeType] load_os_font_list complete");
 		save_font_list();
 	}
 }
@@ -109,9 +122,11 @@ static uint32_t add_font_checksum_path(uint32_t checksum,
 uint32_t get_font_checksum(void)
 {
 	uint32_t checksum = 0;
+	uint32_t checksum_v2 = 0;
 
 	@autoreleasepool {
 		BOOL is_dir;
+		BOOL is_dir_v2;
 		NSArray *paths = NSSearchPathForDirectoriesInDomains(
 			NSLibraryDirectory, NSAllDomainsMask, true);
 
@@ -120,7 +135,7 @@ uint32_t get_font_checksum(void)
 				[NSFileManager defaultManager];
 			NSString *font_path =
 				[path stringByAppendingPathComponent:@"Fonts"];
-
+	
 			bool folder_exists = [file_manager
 				fileExistsAtPath:font_path
 				     isDirectory:&is_dir];
@@ -128,8 +143,19 @@ uint32_t get_font_checksum(void)
 			if (folder_exists && is_dir)
 				checksum = add_font_checksum_path(
 					checksum, file_manager, font_path);
+
+			// support /System/Library/AssetsV2/
+			NSString *font_path_v2 =
+				[path stringByAppendingPathComponent:@"AssetsV2"];
+			bool folder_v2_exists = [file_manager
+				fileExistsAtPath:font_path_v2
+				     isDirectory:&is_dir_v2];
+			if (folder_v2_exists && is_dir_v2) {
+				checksum_v2 = add_font_checksum_path(
+					checksum_v2, file_manager, font_path_v2);
+			}
 		}
 	}
-
-	return checksum;
+	blog(LOG_DEBUG, "[Text-FreeType] get_font_checksum complete");
+	return checksum + checksum_v2;
 }
