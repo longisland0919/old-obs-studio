@@ -8,8 +8,8 @@
 #import "OBSDALMachServer.h"
 #import <Foundation/Foundation.h>
 #include <obs-module.h>
-#include "MachProtocol.h"
 #include "Defines.h"
+#include "MachProtocol.h"
 
 @interface OBSDALMachServer () <NSPortDelegate>
 @property NSPort *port;
@@ -79,6 +79,9 @@
 			     "mach server received connect message from port %d!",
 			     ((NSMachPort *)message.sendPort).machPort);
 			[self.clientPorts addObject:message.sendPort];
+			if (self.machClientConnectStateChanged) {
+      		    self.machClientConnectStateChanged(MachClientConnectStateConnect);
+    		}
 		}
 		break;
 	default:
@@ -123,6 +126,11 @@
 
 	// Remove dead ports if necessary
 	[self.clientPorts minusSet:removedPorts];
+	for (int i = 0; i < removedPorts.count; i++) {
+		if (self.machClientConnectStateChanged) {
+      		self.machClientConnectStateChanged(MachClientConnectStateDisconnect);
+    	}
+	}
 }
 
 - (void)sendFrameWithSize:(NSSize)size
