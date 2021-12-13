@@ -104,4 +104,5 @@ tags
 #do not ignore
 !/plugins/obs-filters/background-matting/apple/plugins/
 !/plugins/obs-filters/background-matting/apple/plugins/libtensorflowlite_c.dylib
-
+!/plugins/obs-filters/background-matting/win/plugins/
+!/plugins/obs-filters/background-matting/win/plugins/tensorflowlite_c.dll
