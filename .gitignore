@@ -100,3 +100,8 @@ tags
 .DS_Store
 */.DS_Store
 */**/.DS_Store
+
+#do not ignore
+!/plugins/obs-filters/background-matting/apple/plugins/
+!/plugins/obs-filters/background-matting/apple/plugins/libtensorflowlite_c.dylib
+
